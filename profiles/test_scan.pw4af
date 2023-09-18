@@ -1,0 +1,20 @@
+[profile]
+description = Testing Scanning
+name = test_scan
+
+[output.console]
+verbose = False
+use_colors = True
+
+
+[grep.feeds]
+
+[audit.phishing_vector]
+
+[grep.path_disclosure]
+
+[audit.csrf]
+
+[grep.hash_analysis]
+
+[infrastructure.dns_wildcard]

@@ -20,6 +20,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 """
 from multiprocessing.dummy import Process
+from threading import Thread
 from flask import jsonify, request
 
 from w4af.core.ui.api import app
@@ -31,11 +32,16 @@ from w4af.core.ui.api.utils.scans import (get_scan_info_from_id,
                                           start_scan_helper,
                                           get_new_scan_id,
                                           create_temp_profile,
-                                          remove_temp_profile)
+                                          remove_temp_profile,
+                                          validate_file_exist,
+                                          validate_profile_file)
 from w4af.core.data.parsers.doc.url import URL
 from w4af.core.controllers.w4afCore import w4afCore
 from w4af.core.controllers.exceptions import BaseFrameworkException
+from w4af.core.ui.api.utils.task_manager.main import task_queue, append_task
 
+import os
+from uuid import uuid4
 
 @app.route('/scans/', methods=['POST'])
 @requires_auth
@@ -61,29 +67,34 @@ def start_scan():
     target_urls = request.json['target_urls']
 
     #
-    # First make sure that there are no other scans running, remember that this
-    # REST API is an MVP and we can only run one scan at the time (for now)
-    #
-    scan_infos = list(SCANS.values())
-    if not all([si is None for si in scan_infos]):
-        abort(400, 'This version of the REST API does not support'
-                   ' concurrent scans. Remember to DELETE finished scans'
-                   ' before starting a new one.')
-
-    #
     # Before trying to start a new scan we verify that the scan profile is
     # valid and return an informative error if it's not
     #
-    scan_profile_file_name, profile_path = create_temp_profile(scan_profile)
     w4af_core = w4afCore()
+    if validate_profile_file(scan_profile):    
+        if validate_file_exist(scan_profile):
+            
+            try:
+                scan_profile_file_name = scan_profile.replace(".pw4af","")
 
-    try:
-        w4af_core.profiles.use_profile(scan_profile_file_name,
-                                       workdir=profile_path)
-    except BaseFrameworkException as bfe:
-        abort(400, str(bfe))
-    finally:
-        remove_temp_profile(scan_profile_file_name)
+                w4af_core.profiles.use_profile(scan_profile_file_name,
+                                           workdir=".")
+                
+            except BaseFrameworkException as bfe:
+                abort(400, str(bfe))
+            
+        else:
+            abort(404, "File doesn't exit")
+    else:
+        scan_profile_file_name, profile_path = create_temp_profile(scan_profile)
+
+        try:
+            w4af_core.profiles.use_profile(scan_profile_file_name,
+                                           workdir=profile_path)
+        except BaseFrameworkException as bfe:
+            abort(400, str(bfe))
+        finally:
+            remove_temp_profile(scan_profile_file_name)
 
     #
     # Now that we know that the profile is valid I verify the scan target info
@@ -113,14 +124,11 @@ def start_scan():
     scan_info.output = RESTAPIOutput()
     SCANS[scan_id] = scan_info
 
-    #
-    # Finally, start the scan in a different thread
-    #
-    args = (scan_info,)
-    t = Process(target=start_scan_helper, name='ScanThread', args=args)
-    t.daemon = True
 
-    t.start()
+    """"Adds a scan_info inside a queue"""
+
+    append_task(scan_info)
+
 
     return jsonify({'message': 'Success',
                     'id': scan_id,

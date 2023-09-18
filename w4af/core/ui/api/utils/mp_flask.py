@@ -3,6 +3,8 @@ import os
 
 from multiprocessing.dummy import Process
 from socketserver import ThreadingMixIn
+from threading import Thread
+from w4af.core.ui.api.utils.task_manager.main import tasks_processor
 from werkzeug._internal import _log
 from werkzeug.serving import ForkingWSGIServer, BaseWSGIServer
 from flask import Flask
@@ -87,6 +89,15 @@ def make_server(host, port, app=None, threaded=False, processes=1,
     """Create a new server instance that is either threaded, or forks
     or just processes one request after another.
     """
+
+
+    """Creates a thread for scan consumer """
+
+    tasks_processor_worker_thread = Thread(target=tasks_processor)
+    tasks_processor_worker_thread.daemon = True
+    tasks_processor_worker_thread.start()
+    
+
     if threaded and processes > 1:
         raise ValueError("cannot have a multithreaded and "
                          "multi process server.")
